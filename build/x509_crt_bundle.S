@@ -1,4 +1,4 @@
-/* * Data converted from /home/dricker/esp/ESP_AS5600/build/esp-idf/mbedtls/x509_crt_bundle
+/* * Data converted from /home/dricker/esp/MotorWithAS5600/build/esp-idf/mbedtls/x509_crt_bundle
  */
 .data
 #if !defined (__APPLE__) && !defined (__linux__)

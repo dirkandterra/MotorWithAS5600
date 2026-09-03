@@ -1,4 +1,4 @@
-# Install script for directory: /home/dricker/esp/ESP_AS5600/components/l293d
+# Install script for directory: /home/dricker/esp/MotorWithAS5600/components/l293d
 
 # Set the install prefix
 if(NOT DEFINED CMAKE_INSTALL_PREFIX)

@@ -1,17 +1,24 @@
 #include "l293d.h"
-#include "driver/gpio.h"
 #include "driver/ledc.h"
 #include "esp_err.h"
 #include <stdlib.h>  /* abs() */
 
 #define DUTY_MAX  ((1 << L293D_PWM_RESOLUTION) - 1)  /* 1023 */
 
-static esp_err_t set_duty(const l293d_t *dev, uint32_t duty)
+static esp_err_t set_duty(ledc_channel_t channel, uint32_t duty)
 {
     esp_err_t ret;
-    ret = ledc_set_duty(LEDC_LOW_SPEED_MODE, dev->cfg.ledc_channel, duty);
+    ret = ledc_set_duty(LEDC_LOW_SPEED_MODE, channel, duty);
     if (ret != ESP_OK) return ret;
-    return ledc_update_duty(LEDC_LOW_SPEED_MODE, dev->cfg.ledc_channel);
+    return ledc_update_duty(LEDC_LOW_SPEED_MODE, channel);
+}
+
+/* Drive the pair in one shot so both inputs are never momentarily high */
+static esp_err_t set_pair(const l293d_t *dev, uint32_t in1_duty, uint32_t in2_duty)
+{
+    esp_err_t ret = set_duty(dev->cfg.in1_channel, in1_duty);
+    if (ret != ESP_OK) return ret;
+    return set_duty(dev->cfg.in2_channel, in2_duty);
 }
 
 esp_err_t l293d_init(const l293d_config_t *cfg, l293d_t *dev)
@@ -19,19 +26,7 @@ esp_err_t l293d_init(const l293d_config_t *cfg, l293d_t *dev)
     if (!cfg || !dev) return ESP_ERR_INVALID_ARG;
     dev->cfg = *cfg;
 
-    /* Configure IN1 and IN2 as outputs */
-    gpio_config_t io = {
-        .pin_bit_mask = (1ULL << cfg->in1_gpio) | (1ULL << cfg->in2_gpio),
-        .mode         = GPIO_MODE_OUTPUT,
-        .pull_up_en   = GPIO_PULLUP_DISABLE,
-        .pull_down_en = GPIO_PULLDOWN_DISABLE,
-        .intr_type    = GPIO_INTR_DISABLE,
-    };
-    ESP_ERROR_CHECK(gpio_config(&io));
-    gpio_set_level(cfg->in1_gpio, 0);
-    gpio_set_level(cfg->in2_gpio, 0);
-
-    /* Configure LEDC timer */
+    /* Configure LEDC timer shared by both inputs */
     ledc_timer_config_t timer = {
         .speed_mode      = LEDC_LOW_SPEED_MODE,
         .duty_resolution = L293D_PWM_RESOLUTION,
@@ -41,16 +36,21 @@ esp_err_t l293d_init(const l293d_config_t *cfg, l293d_t *dev)
     };
     ESP_ERROR_CHECK(ledc_timer_config(&timer));
 
-    /* Configure LEDC channel on EN pin */
-    ledc_channel_config_t channel = {
-        .gpio_num   = cfg->en_gpio,
+    /* One LEDC channel per direction input; EN is hardwired high */
+    ledc_channel_config_t in1 = {
+        .gpio_num   = cfg->in1_gpio,
         .speed_mode = LEDC_LOW_SPEED_MODE,
-        .channel    = cfg->ledc_channel,
+        .channel    = cfg->in1_channel,
         .timer_sel  = cfg->ledc_timer,
         .duty       = 0,
         .hpoint     = 0,
     };
-    ESP_ERROR_CHECK(ledc_channel_config(&channel));
+    ESP_ERROR_CHECK(ledc_channel_config(&in1));
+
+    ledc_channel_config_t in2 = in1;
+    in2.gpio_num = cfg->in2_gpio;
+    in2.channel  = cfg->in2_channel;
+    ESP_ERROR_CHECK(ledc_channel_config(&in2));
 
     return ESP_OK;
 }
@@ -67,32 +67,21 @@ esp_err_t l293d_set_speed(l293d_t *dev, int speed)
         return l293d_stop(dev);
     }
 
-    if (speed > 0) {
-        /* Forward: IN1=1, IN2=0 */
-        gpio_set_level(dev->cfg.in1_gpio, 1);
-        gpio_set_level(dev->cfg.in2_gpio, 0);
-    } else {
-        /* Reverse: IN1=0, IN2=1 */
-        gpio_set_level(dev->cfg.in1_gpio, 0);
-        gpio_set_level(dev->cfg.in2_gpio, 1);
-    }
-
     uint32_t duty = (uint32_t)(abs(speed) * DUTY_MAX / 100);
-    return set_duty(dev, duty);
+
+    /* Forward: PWM on IN1, IN2 low.  Reverse: PWM on IN2, IN1 low. */
+    return (speed > 0) ? set_pair(dev, duty, 0)
+                       : set_pair(dev, 0, duty);
 }
 
 esp_err_t l293d_brake(l293d_t *dev)
 {
     if (!dev) return ESP_ERR_INVALID_ARG;
-    gpio_set_level(dev->cfg.in1_gpio, 1);
-    gpio_set_level(dev->cfg.in2_gpio, 1);
-    return set_duty(dev, DUTY_MAX);
+    return set_pair(dev, DUTY_MAX, DUTY_MAX);
 }
 
 esp_err_t l293d_stop(l293d_t *dev)
 {
     if (!dev) return ESP_ERR_INVALID_ARG;
-    gpio_set_level(dev->cfg.in1_gpio, 0);
-    gpio_set_level(dev->cfg.in2_gpio, 0);
-    return set_duty(dev, 0);
+    return set_pair(dev, 0, 0);
 }

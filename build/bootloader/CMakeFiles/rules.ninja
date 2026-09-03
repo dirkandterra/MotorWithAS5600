@@ -289,7 +289,7 @@ rule C_STATIC_LIBRARY_LINKER____idf_main_
 # Rule for re-running cmake.
 
 rule RERUN_CMAKE
-  command = /usr/bin/cmake --regenerate-during-build -S/home/dricker/esp/esp-idf/components/bootloader/subproject -B/home/dricker/esp/ESP_AS5600/build/bootloader
+  command = /usr/bin/cmake --regenerate-during-build -S/home/dricker/esp/esp-idf/components/bootloader/subproject -B/home/dricker/esp/MotorWithAS5600/build/bootloader
   description = Re-running CMake...
   generator = 1
 

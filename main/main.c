@@ -6,16 +6,14 @@
 #include "freertos/semphr.h"
 #include "driver/i2c_master.h"
 #include "as5600.h"
-#include "ssd1306.h"
 #include "l293d.h"
 
-/* ── Hardware ───────────────────────────────────────────────── */
-#define I2C_SDA_GPIO    4
-#define I2C_SCL_GPIO    5
-#define SSD1306_ADDR    0x3C
+/* ── Hardware (Waveshare ESP32-C3-Zero) ─────────────────────── */
+#define I2C_SDA_GPIO    8
+#define I2C_SCL_GPIO    9
 #define MOTOR_IN1_GPIO  6
 #define MOTOR_IN2_GPIO  7
-#define MOTOR_EN_GPIO   8
+/* L293D EN is hardwired to logic 1; speed is PWM'd on IN1/IN2. */
 
 /* ── PID tuning ─────────────────────────────────────────────── */
 #define PID_PERIOD_MS     10          /* control loop period      */
@@ -27,9 +25,13 @@
 #define DEADBAND_DEG      1.0f        /* stop inside this window  */
 #define MIN_SPEED         40          /* minimum PWM when driving */
 
+/* Status line cadence. Slower than the old 10 Hz display refresh so the
+ * console stays readable while a target is being typed. */
+#define STATUS_PERIOD_MS  500
+#define STATUS_TICKS      (STATUS_PERIOD_MS / PID_PERIOD_MS)
+
 /* ── Globals ────────────────────────────────────────────────── */
 static as5600_t        g_sensor;
-static ssd1306_t       g_display;
 static l293d_t         g_motor;
 
 static SemaphoreHandle_t g_target_mutex;
@@ -66,7 +68,7 @@ static float pid_update(pid_t *pid, float setpoint, float meas, float dt)
     return pid->kp * error + pid->ki * pid->integral + pid->kd * derivative;
 }
 
-/* ── PID / display task ─────────────────────────────────────── */
+/* ── PID / status task ──────────────────────────────────────── */
 static void pid_task(void *arg)
 {
     pid_t pid = {
@@ -74,8 +76,7 @@ static void pid_task(void *arg)
         .integral_limit = INTEGRAL_LIMIT,
     };
 
-    char line[22];
-    int  display_tick = 0;
+    int status_tick = 0;
     TickType_t last_wake = xTaskGetTickCount();
 
     while (1) {
@@ -105,24 +106,10 @@ static void pid_task(void *arg)
 
         l293d_set_speed(&g_motor, speed);
 
-        /* Refresh display at 10 Hz (every 10 control ticks) */
-        if (++display_tick >= 10) {
-            display_tick = 0;
-            ssd1306_clear(&g_display);
-
-            snprintf(line, sizeof(line), "Pos: %6.2f deg", d.degrees);
-            ssd1306_draw_string(&g_display, 0, 0, line);
-
-            snprintf(line, sizeof(line), "Tgt: %6.2f deg", target);
-            ssd1306_draw_string(&g_display, 0, 1, line);
-
-            snprintf(line, sizeof(line), "Err: %+6.2f deg", error);
-            ssd1306_draw_string(&g_display, 0, 2, line);
-
-            snprintf(line, sizeof(line), "Spd: %+4d%%", speed);
-            ssd1306_draw_string(&g_display, 0, 3, line);
-
-            ssd1306_flush(&g_display);
+        if (++status_tick >= STATUS_TICKS) {
+            status_tick = 0;
+            printf("Pos: %6.2f deg  Tgt: %6.2f deg  Err: %+7.2f deg  Spd: %+4d%%\n",
+                   d.degrees, target, error, speed);
         }
     }
 }
@@ -190,14 +177,13 @@ void app_main(void)
     ESP_ERROR_CHECK(i2c_new_master_bus(&bus_cfg, &bus));
 
     ESP_ERROR_CHECK(as5600_init(bus, &g_sensor));
-    ESP_ERROR_CHECK(ssd1306_init(bus, SSD1306_ADDR, &g_display));
 
     l293d_config_t motor_cfg = {
-        .in1_gpio     = MOTOR_IN1_GPIO,
-        .in2_gpio     = MOTOR_IN2_GPIO,
-        .en_gpio      = MOTOR_EN_GPIO,
-        .ledc_channel = LEDC_CHANNEL_0,
-        .ledc_timer   = LEDC_TIMER_0,
+        .in1_gpio    = MOTOR_IN1_GPIO,
+        .in2_gpio    = MOTOR_IN2_GPIO,
+        .in1_channel = LEDC_CHANNEL_0,
+        .in2_channel = LEDC_CHANNEL_1,
+        .ledc_timer  = LEDC_TIMER_0,
     };
     ESP_ERROR_CHECK(l293d_init(&motor_cfg, &g_motor));
 

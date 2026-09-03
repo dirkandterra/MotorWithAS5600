@@ -5,18 +5,18 @@ cmake_minimum_required(VERSION 3.5)
 
 file(MAKE_DIRECTORY
   "/home/dricker/esp/esp-idf/components/bootloader/subproject"
-  "/home/dricker/esp/ESP_AS5600/build/bootloader"
-  "/home/dricker/esp/ESP_AS5600/build/bootloader-prefix"
-  "/home/dricker/esp/ESP_AS5600/build/bootloader-prefix/tmp"
-  "/home/dricker/esp/ESP_AS5600/build/bootloader-prefix/src/bootloader-stamp"
-  "/home/dricker/esp/ESP_AS5600/build/bootloader-prefix/src"
-  "/home/dricker/esp/ESP_AS5600/build/bootloader-prefix/src/bootloader-stamp"
+  "/home/dricker/esp/MotorWithAS5600/build/bootloader"
+  "/home/dricker/esp/MotorWithAS5600/build/bootloader-prefix"
+  "/home/dricker/esp/MotorWithAS5600/build/bootloader-prefix/tmp"
+  "/home/dricker/esp/MotorWithAS5600/build/bootloader-prefix/src/bootloader-stamp"
+  "/home/dricker/esp/MotorWithAS5600/build/bootloader-prefix/src"
+  "/home/dricker/esp/MotorWithAS5600/build/bootloader-prefix/src/bootloader-stamp"
 )
 
 set(configSubDirs )
 foreach(subDir IN LISTS configSubDirs)
-    file(MAKE_DIRECTORY "/home/dricker/esp/ESP_AS5600/build/bootloader-prefix/src/bootloader-stamp/${subDir}")
+    file(MAKE_DIRECTORY "/home/dricker/esp/MotorWithAS5600/build/bootloader-prefix/src/bootloader-stamp/${subDir}")
 endforeach()
 if(cfgdir)
-  file(MAKE_DIRECTORY "/home/dricker/esp/ESP_AS5600/build/bootloader-prefix/src/bootloader-stamp${cfgdir}") # cfgdir has leading slash
+  file(MAKE_DIRECTORY "/home/dricker/esp/MotorWithAS5600/build/bootloader-prefix/src/bootloader-stamp${cfgdir}") # cfgdir has leading slash
 endif()
