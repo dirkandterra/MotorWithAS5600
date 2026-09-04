@@ -108,7 +108,12 @@ static void pid_task(void *arg)
 
         if (++status_tick >= STATUS_TICKS) {
             status_tick = 0;
-            printf("Pos: %6.2f deg  Tgt: %6.2f deg  Err: %+7.2f deg  Spd: %+4d%%\n",
+            /* Keep this line off a 64-byte multiple.  It is 64 bytes on the
+               wire (63 chars + CRLF) with %+4d, which exactly fills the USB
+               bulk max packet size, so no short packet ever terminates the
+               host's CDC transfer and lines only surface in pairs at 1 Hz.
+               %+5d makes it 65 bytes, and each line arrives on time. */
+            printf("Pos: %6.2f deg  Tgt: %6.2f deg  Err: %+7.2f deg  Spd: %+5d%%\n",
                    d.degrees, target, error, speed);
         }
     }
