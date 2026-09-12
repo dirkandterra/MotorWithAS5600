@@ -1,0 +1,17 @@
+{
+  "idf.currentSetup": "C:\\esp\\v5.4.4\\esp-idf",
+  "idf.customExtraVars": {
+    "IDF_TARGET": "esp32c3"
+  },
+  "clangd.path": "C:\\Espressif\\tools\\esp-clang\\esp-18.1.2_20240912\\esp-clang\\bin\\clangd.exe",
+  "clangd.arguments": [
+    "--background-index",
+    "--query-driver=**",
+    "--compile-commands-dir=c:\\github\\MotorWithAS5600\\Software\\build"
+  ],
+  "idf.flashType": "UART",
+  "idf.portWin": "COM9",
+  "idf.openOcdConfigs": [
+    "board/esp32c3-builtin.cfg"
+  ]
+}

@@ -11,8 +11,11 @@
  * Restrict to simple macros with numeric values, and/or #if/#endif blocks.
  */
 /*
+
  * Automatically generated file. DO NOT EDIT.
- * Espressif IoT Development Framework (ESP-IDF) 5.4.0 Configuration Header
+
+ * Espressif IoT Development Framework (ESP-IDF) 5.4.4 Configuration Header
+
  */
        
 /* List of deprecated options */
@@ -22,6 +25,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 /* CPU instruction prefetch padding size for flash mmap scenario */
+/* Copy from esp_secure_boot.h */
 /*
  * PMP region granularity size
  * Software may determine the PMP granularity by writing zero to pmp0cfg, then writing all ones

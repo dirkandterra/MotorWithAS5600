@@ -5,8 +5,10 @@
 #include "freertos/task.h"
 #include "freertos/semphr.h"
 #include "driver/i2c_master.h"
+#include "esp_system.h"
 #include "as5600.h"
 #include "l293d.h"
+#include "can.h"
 
 /* ── Hardware (Waveshare ESP32-C3-Zero) ─────────────────────── */
 #define I2C_SDA_GPIO    8
@@ -27,12 +29,14 @@
 
 /* Status line cadence. Slower than the old 10 Hz display refresh so the
  * console stays readable while a target is being typed. */
-#define STATUS_PERIOD_MS  500
+#define STATUS_PERIOD_MS  1000
 #define STATUS_TICKS      (STATUS_PERIOD_MS / PID_PERIOD_MS)
 
 /* ── Globals ────────────────────────────────────────────────── */
 static as5600_t        g_sensor;
 static l293d_t         g_motor;
+static bool             g_sensor_available;
+static bool             g_motor_available;
 
 static SemaphoreHandle_t g_target_mutex;
 static float             g_target_deg = 0.0f;
@@ -46,7 +50,7 @@ typedef struct {
 } pid_t;
 
 /* Wrap error into [-180, 180] to handle the 0/360 boundary */
-static float wrap_error(float e)
+static float wrap_error(float e, bool over180)
 {
     while (e >  180.0f) e -= 360.0f;
     while (e < -180.0f) e += 360.0f;
@@ -56,7 +60,8 @@ static float wrap_error(float e)
 /* Derivative-on-measurement to avoid kick on setpoint change */
 static float pid_update(pid_t *pid, float setpoint, float meas, float dt)
 {
-    float error = wrap_error(setpoint - meas);
+    //float error = wrap_error(setpoint - meas);
+    float error = (setpoint - meas);
 
     pid->integral += error * dt;
     if (pid->integral >  pid->integral_limit) pid->integral =  pid->integral_limit;
@@ -75,21 +80,41 @@ static void pid_task(void *arg)
         .kp = KP, .ki = KI, .kd = KD,
         .integral_limit = INTEGRAL_LIMIT,
     };
-
+    uint8_t get_Position_Command_Tick =0;
     int status_tick = 0;
     TickType_t last_wake = xTaskGetTickCount();
+    uint16_t temp16=0;
 
     while (1) {
         vTaskDelayUntil(&last_wake, pdMS_TO_TICKS(PID_PERIOD_MS));
-
+        if(get_Position_Command_Tick++>10) {
+            get_Position_Command_Tick=0;
+            temp16=can_get_PositionCommand();
+            if(temp16!=CAN_POSITION_INVALID) {
+                xSemaphoreTake(g_target_mutex, portMAX_DELAY);
+                g_target_deg = (float)temp16 /10.0f;
+                xSemaphoreGive(g_target_mutex);
+            }
+        } 
         as5600_data_t d;
-        if (as5600_read(&g_sensor, &d) != ESP_OK) continue;
+        if (!g_sensor_available || as5600_read(&g_sensor, &d) != ESP_OK) {
+            if (g_motor_available) l293d_set_speed(&g_motor, 0);
+            continue;
+        }
+        if(d.degrees>180.0f){
+            as5600_set_high_range(true);  
+        }else if(d.degrees<140.0f){
+            as5600_set_high_range(false);   
+        }
+
+        can_set_PositionActual((int16_t)(d.degrees * 10.0f)); /* send the current position of the motor */
 
         xSemaphoreTake(g_target_mutex, portMAX_DELAY);
         float target = g_target_deg;
         xSemaphoreGive(g_target_mutex);
 
-        float error = wrap_error(target - d.degrees);
+        //float error = wrap_error(target - d.degrees);
+        float error = (target - d.degrees);
         int speed = 0;
 
         if (fabsf(error) > DEADBAND_DEG) {
@@ -104,16 +129,11 @@ static void pid_task(void *arg)
             pid.integral = 0.0f;   /* reset integrator at rest */
         }
 
-        l293d_set_speed(&g_motor, speed);
+        if (g_motor_available) l293d_set_speed(&g_motor, speed);
 
         if (++status_tick >= STATUS_TICKS) {
             status_tick = 0;
-            /* Keep this line off a 64-byte multiple.  It is 64 bytes on the
-               wire (63 chars + CRLF) with %+4d, which exactly fills the USB
-               bulk max packet size, so no short packet ever terminates the
-               host's CDC transfer and lines only surface in pairs at 1 Hz.
-               %+5d makes it 65 bytes, and each line arrives on time. */
-            printf("Pos: %6.2f deg  Tgt: %6.2f deg  Err: %+7.2f deg  Spd: %+5d%%\n",
+            printf("Pos: %6.2f deg  Tgt: %6.2f deg  Err: %+7.2f deg  Spd: %+4d%%\n",
                    d.degrees, target, error, speed);
         }
     }
@@ -151,9 +171,8 @@ static void console_task(void *arg)
                 continue;
             }
 
-            /* Normalise to [0, 360) */
-            val = fmodf(val, 360.0f);
-            if (val < 0.0f) val += 360.0f;
+            if (val < 0.0f) val = 0.0f;
+            if (val > 315.0f) val = 315.0f;
 
             xSemaphoreTake(g_target_mutex, portMAX_DELAY);
             g_target_deg = val;
@@ -169,6 +188,9 @@ static void console_task(void *arg)
 /* ── Entry point ────────────────────────────────────────────── */
 void app_main(void)
 {
+    uint8_t dontRunMotor=0;
+    printf("Reset reason: %d\n", esp_reset_reason());
+
     /* I2C bus */
     i2c_master_bus_config_t bus_cfg = {
         .i2c_port          = I2C_NUM_0,
@@ -178,10 +200,16 @@ void app_main(void)
         .glitch_ignore_cnt = 7,
         .flags.enable_internal_pullup = true,
     };
-    i2c_master_bus_handle_t bus;
-    ESP_ERROR_CHECK(i2c_new_master_bus(&bus_cfg, &bus));
-
-    ESP_ERROR_CHECK(as5600_init(bus, &g_sensor));
+    i2c_master_bus_handle_t bus = NULL;
+    esp_err_t ret = i2c_new_master_bus(&bus_cfg, &bus);
+    if (ret == ESP_OK) {
+        ret = as5600_init(bus, &g_sensor);
+    }
+    g_sensor_available = (ret == ESP_OK);
+    if (!g_sensor_available) {
+        printf("AS5600 unavailable motor output disabled.\n");
+        dontRunMotor=1;
+    }
 
     l293d_config_t motor_cfg = {
         .in1_gpio    = MOTOR_IN1_GPIO,
@@ -190,10 +218,18 @@ void app_main(void)
         .in2_channel = LEDC_CHANNEL_1,
         .ledc_timer  = LEDC_TIMER_0,
     };
-    ESP_ERROR_CHECK(l293d_init(&motor_cfg, &g_motor));
+    ret = l293d_init(&motor_cfg, &g_motor);
+    g_motor_available = (ret == ESP_OK);
+    if (!g_motor_available) {
+        printf("Motor driver unavailable motor output disabled.\n");
+        dontRunMotor=1;
+    }
 
     g_target_mutex = xSemaphoreCreateMutex();
-
-    xTaskCreate(pid_task,     "pid",     4096, NULL, 5, NULL);
+    if(!dontRunMotor){
+        xTaskCreate(pid_task,     "pid",     4096, NULL, 5, NULL);
+    }
     xTaskCreate(console_task, "console", 4096, NULL, 3, NULL);
+    xTaskCreate(can_rx_task, "can_rx", 3072, NULL, 6, NULL);
+    xTaskCreate(can_tx_task, "can_tx", 3072, NULL, 5, NULL);
 }

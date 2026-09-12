@@ -1,0 +1,2 @@
+source C:/github/MotorWithAS5600/Software/build/gdbinit/symbols
+source C:/github/MotorWithAS5600/Software/build/gdbinit/connect

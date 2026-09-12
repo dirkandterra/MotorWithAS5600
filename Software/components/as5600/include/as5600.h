@@ -11,6 +11,7 @@ typedef struct {
     i2c_master_dev_handle_t dev_handle;
 } as5600_t;
 
+
 typedef struct {
     uint16_t raw_angle;        // 12-bit raw angle (0–4095)
     uint16_t angle;            // 12-bit filtered angle (0–4095)
@@ -38,3 +39,5 @@ esp_err_t as5600_init(i2c_master_bus_handle_t bus, as5600_t *dev);
  * @return ESP_OK on success, or an error code.
  */
 esp_err_t as5600_read(as5600_t *dev, as5600_data_t *data);
+
+void as5600_set_high_range(bool high_range);

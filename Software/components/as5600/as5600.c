@@ -7,6 +7,8 @@
 #define AS5600_REG_RAW_ANGLE 0x0C
 #define AS5600_REG_ANGLE     0x0E
 
+static uint8_t g_highRange = false;
+
 static esp_err_t as5600_read_reg(as5600_t *dev, uint8_t reg, uint8_t *buf, size_t len)
 {
     return i2c_master_transmit_receive(dev->dev_handle, &reg, 1, buf, len, 100);
@@ -50,7 +52,22 @@ esp_err_t as5600_read(as5600_t *dev, as5600_data_t *data)
     ret = as5600_read_reg(dev, AS5600_REG_ANGLE, buf, 2);
     if (ret != ESP_OK) return ret;
     data->angle   = ((uint16_t)(buf[0] & 0x0F) << 8) | buf[1];
-    data->degrees = data->angle * 360.0f / 4096.0f;
+    data->degrees = data->angle * 360.0f / 4095.0f * 32/36; /* 32/36 gear ratio */
+    //printf("HighRange: %d OG: %6.2f",g_highRange,data->degrees);
+    if(g_highRange) {
+        if(data->degrees < 45.0f) {
+            data->degrees += 320.0f; /* add 320 degrees if in high range */
+        }
+    }else{
+        if(data->degrees > 300.0f) {
+            data->degrees -= 320.0f; /* subtract 320 degrees if in low range */
+        }
+    }
+    //printf("Pos: %6.2f deg\n", data->degrees);
 
     return ESP_OK;
+}
+
+void as5600_set_high_range(bool high_range){
+    g_highRange = high_range;
 }
