@@ -34,7 +34,8 @@ esp_err_t l293d_init(const l293d_config_t *cfg, l293d_t *dev)
         .freq_hz         = L293D_PWM_FREQ_HZ,
         .clk_cfg         = LEDC_AUTO_CLK,
     };
-    ESP_ERROR_CHECK(ledc_timer_config(&timer));
+    esp_err_t ret = ledc_timer_config(&timer);
+    if (ret != ESP_OK) return ret;
 
     /* One LEDC channel per direction input; EN is hardwired high */
     ledc_channel_config_t in1 = {
@@ -45,12 +46,14 @@ esp_err_t l293d_init(const l293d_config_t *cfg, l293d_t *dev)
         .duty       = 0,
         .hpoint     = 0,
     };
-    ESP_ERROR_CHECK(ledc_channel_config(&in1));
+    ret = ledc_channel_config(&in1);
+    if (ret != ESP_OK) return ret;
 
     ledc_channel_config_t in2 = in1;
     in2.gpio_num = cfg->in2_gpio;
     in2.channel  = cfg->in2_channel;
-    ESP_ERROR_CHECK(ledc_channel_config(&in2));
+    ret = ledc_channel_config(&in2);
+    if (ret != ESP_OK) return ret;
 
     return ESP_OK;
 }
